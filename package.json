@@ -1,0 +1,17 @@
+{
+  "name": "cc-error-utils",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "lodash": "3.10.1",
+    "mandrill-api": "1.0.45",
+    "sendgrid": "1.9.2",
+    "cc-express-utils": "git+https://github.com/clevercanary/cc-express-utils.git"
+  }
+}
