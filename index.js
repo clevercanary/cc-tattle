@@ -111,14 +111,15 @@ function emailError(error, errId, next) {
             AWSSecretKey: process.env.AWS_SECRET_KEY
         });
 
-        return transport.sendMail(mailOptions, function(error) {
+        return transport.sendMail(mailOptions, function(transportError) {
 
-            if (error) {
+            if (transportError) {
                 console.log("transport error:\n");
-                console.log(error);
+                console.log(transportError);
+                next(transportError);
             }
             transport.close();
-            next();
+            next(error);
         });
     }
 
