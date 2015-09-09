@@ -6,62 +6,100 @@ var nodemailer = require("nodemailer");
 var _ = require("lodash");
 var ccExpressUtils = require("cc-express-utils");
 
-
-function ErrorHandler(options) {
-
-    validateOptions(options);
-    options.collection = "errorlogs";
-    this._options = options;
-    this._env = options.env;
-
-    if (options.mongooseConnection.readyState === 1) {
-        this._db = options.mongooseConnection.db;
-    }
-
-    var collection = this._db.collection(options.collection);
-    this._collection = collection;
-
-    if (options.clientName === "sendgrid") {
-        this._client = sengrid(options.clientOptions.username, options.clientOptions.apiKey);
-    }
-    else if (options.clientName === "mandrill") {
-        this._client = new mandrill.Mandrill(options.clientOptions.apiKey);
-    }
-
-    var self = this;
-    /**
-     * Handle process killing errors
-     */
-    process.on("uncaughtException", function (error) {
-
-        collection.insert({
-            stack: error.stack,
-            createdAt: new Date()
-        }, function (dbErr, mongoRes) {
-            console.error(error);
-
-            var errLogId = mongoRes.ops[0]._id.toString()
-            emailError.call(self, error, errLogId, function() {
-                process.exit();
-            });
-        });
-    });
-}
+/**
+ * @constructor Tattle
+ */
+function Tattle() {}
 
 /**
- * Handle express non-terminating errors
+ * Configure Tattle and set up uncaught exception handler
+ *
+ * @param config {{env: string, email: {admins: string[], noReply: string, noReplyName: string}}}
+ * @param mongoose {"mongoose"}
+ */
+Tattle.prototype.configure = function(config, mongoose) {
+    this._config = config;
+    this._config.client = getClient.call(this, config);
+    this._clientOptions = getClientOptions.call(this, config);
+    this.configureMongoose(mongoose);
+    this.handleUncaughtException();
+};
+
+/**
+ * Set properties on this._config
+ *
+ * @param key {string}
+ * @param val {*}
+ */
+Tattle.prototype.set = function(key, val) {
+    // need to deal with dot notation
+    this._config[key] = val;
+};
+
+/**
+ * Get values from this._config
+ *
+ * @param key {string}
+ * @returns {*|undefined}
+ */
+Tattle.prototype.get = function(key) {
+    // need to deal with dot notation
+    return this._config[key] || undefined;
+};
+
+/**
+ * Configure mongoose
+ *
+ * @param mongoose {"mongoose"}
+ */
+Tattle.prototype.configureMongoose = function(mongoose) {
+    this._mongoose = mongoose;
+    this.registerMongooseModel();
+    this._ErrorLog = mongoose.model("ErrorLog");
+};
+
+/**
+ * Register ErrorLog model
+ */
+Tattle.prototype.registerMongooseModel = function() {
+
+    var mongoose = this._mongoose;
+    var Schema = mongoose.Schema;
+    var ErrorLogSchema = new Schema({
+        user: Schema.ObjectId,
+        userAgent: String,
+        method: String,
+        url: String,
+        query: String,
+        body: String,
+        stack: String,
+        createdAt: {
+            type: Date,
+            default: new Date()
+        }
+    });
+    mongoose.model("ErrorLog", ErrorLogSchema);
+};
+
+/**
+ * Handle express errors
  *
  * @returns {Function}
  */
-ErrorHandler.prototype.handleServerErrors = function() {
+Tattle.prototype.expressErrorHandler = function() {
 
-    var collection = this._collection;
+    var ErrorLog = this._ErrorLog;
     var self = this;
 
     return function(error, req, res, next) {
+        console.error(error);
+        var userId;
+        if (req.user) {
+            userId = req.user._id;
+        }
 
-        collection.insert({
-            user: req.user._id,
+        ErrorLog.create({
+            user: userId,
             userAgent: req.headers["user-agent"],
             method: req.method,
             url: req.originalUrl,
@@ -69,129 +107,196 @@ ErrorHandler.prototype.handleServerErrors = function() {
             body: JSON.stringify(req.body),
             stack: error.stack,
             createdAt: new Date()
-        }, function(dbErr, mongoRes) {
+        }, function(dbErr, errLog) {
 
-            var errLogId = mongoRes.ops[0]._id.toString()
-            console.error(error);
-            emailError.call(self, error, errLogId, ccExpressUtils.setupResponseCallback(res));
+            if (dbErr) {
+                return next(dbErr);
+            }
+            var errLogId = errLog._id.toString();
+            self.emailError(error, errLogId, ccExpressUtils.setupResponseCallback(res));
         });
+    };
+};
+
+/**
+ * Handle uncaught exceptions
+ */
+Tattle.prototype.handleUncaughtException = function() {
+
+    var self = this;
+    var ErrorLog = this._ErrorLog;
+
+    process.on("uncaughtException", function(error) {
+        console.error(error);
+
+        ErrorLog.create({
+            stack: error.stack,
+            createdAt: new Date()
+        }, function(dbErr, errLog) {
+
+            var errLogId = errLog._id.toString();
+            self.emailError(error, errLogId, process.exit);
+        });
+    });
+};
+
+/**
+ * Construct email client transport
+ *
+ * @param client {string}
+ * @param clientOptions {{username: string|undefined, apiKey: string|undefined}}
+ * @returns {*}
+ */
+function getTransport(client, clientOptions) {
+    if (client === "nodemailer") {
+        return nodemailer.createTransport("SES", clientOptions);
+    }
+    else if (client === "sendgrid") {
+        return sendgrid(clientOptions.username, clientOptions.apiKey);
+    }
+    else if (client === "mandrill") {
+        return new mandrill.Mandrill(clientOptions.apiKey);
     }
 }
 
-
 /**
- * Send email to admins with an error log ID
+ * Send email containing error log ID
  *
  * @param error {Error}
- * @param errId {string | ObjectId}
+ * @param errLogId {string | ObjectId}
  * @param next {Function}
+ * @returns {*}
  */
-function emailError(error, errId, next) {
+Tattle.prototype.emailError = function(error, errLogId, next) {
 
-    var env = this._env || "local";
-    var client = this._client;
-    var options = this._options || {};
-    var clientName = options.clientName;
-    var clientOptions = options.clientOptions;
+    var config = this._config;
+    var clientOptions = this._clientOptions;
+    var client = config.client;
+    var transport = getTransport(client, clientOptions);
+    var emailOptions = getEmailOptions.call(this);
 
-    var mailOptions = {
-        to: clientOptions.admins,
-        subject: "Application Error",
-        html: "Error id: " + errId.toString()
-    }
+    emailOptions.html = "Error id: " + errLogId; // custom html?
 
-    // if debug mode, email through nodemailer
-    if (env === "local" && options.debug) {
+    if (client === "nodemailer" && config.debug) {
 
-        _.extend(mailOptions, {
-            from: "\"" + clientOptions.noReplyName + "\" <" + clientOptions.noReply + ">"
-        });
-        var transport = nodemailer.createTransport("SES", {
-            AWSAccessKeyID: process.env.AWS_ACCESS_KEY_ID,
-            AWSSecretKey: process.env.AWS_SECRET_KEY
-        });
+        return transport.sendMail(emailOptions, function(transportError) {
 
-        return transport.sendMail(mailOptions, function(transportError) {
-
+            transport.close();
             if (transportError) {
                 console.log("transport error:\n");
                 console.log(transportError);
-                next(transportError);
+                return next(transportError);
             }
-            transport.close();
             next(error);
         });
     }
+    else if (client === "sendgrid") {
 
-    if (env === "production") {
+        return transport.send(emailOptions, next);
+    }
+    else if (client === "mandrill") {
 
-        if (clientName === "sendgrid") {
-
-            _.extend(mailOptions, {
-                from: clientOptions.from,
-                fromname: clientOptions.fromname
+        return transport.messages.send({message: emailOptions},
+            function(res) {
+                next(true);
+            },
+            function(err) {
+                console.log(err);
+                next(false);
             });
-            return client.send(mailOptions);
+    }
+};
+
+/**
+ * Decide which email client to use
+ *
+ * @param config {{env: string, email: {sendgrid: Object, mandrillApiKey: string|undefined}}}
+ * @returns {*}
+ */
+function getClient(config) {
+
+
+    if (config.env === "local") {
+        return "nodemailer";
+    }
+    else if (config.env === "production") {
+
+        if (config.email && config.email.sendgrid) {
+            return "sendgrid";
         }
-        else if (clientName === "mandrill") {
-
-            _.extend(mailOptions, {
-                from_email: clientOptions.noReply,
-                from_name: clientOptions.noReplyName,
-                track_opens: true,
-                track_clicks: true
-            });
-            return client.messages.send({message: mailOptions});
+        else if (config.email && config.email.mandrillApiKey) {
+            return "mandrill";
         }
     }
 }
 
 /**
- * Validate options
  *
- * @param options
+ * @param config {Object}
+ * @returns {*}
  */
-function validateOptions(options) {
+function getClientOptions(config) {
 
-    var requiredKeys = ["mongooseConnection", "clientName", "clientOptions", "env"];
+    var client = config.client;
 
-    checkRequiredKeys(options, requiredKeys);
-    var emailKeys = ["admins", "noReply", "noReplyName"];
-    var emailClient = options.clientName.toLowerCase();
-
-    if (options.debug) {
-        options.clientName = "nodemailer"
-        checkRequiredKeys(options.clientOptions, emailKeys)
+    if (client === "nodemailer") {
+        return {
+            AWSAccessKeyID: process.env.AWS_ACCESS_KEY_ID,
+            AWSSecretKey: process.env.AWS_SECRET_KEY
+        };
     }
-
-    if (emailClient === "sendgrid") {
-        checkRequiredKeys(options.clientOptions, ["username", "apiKey"].concat(emailKeys));
+    else if (client === "sendgrid") {
+        return {
+            username: config.email.sendgrid.username,
+            apiKey: config.email.sendgrid.apiKey
+        };
     }
-    else if (emailClient === "mandrill") {
-        checkRequiredKeys(options.clientOptions, ["apiKey"].concat(emailKeys));
+    else if (client === "sendgrid") {
+        return {
+            apiKey: config.email.mandrillApiKey
+        };
     }
 }
 
 /**
- * Check object for required options
+ * Build email object
  *
- * @param options
- * @param keys
+ * @returns {{to: string[], subject: string}}
  */
-function checkRequiredKeys(options, keys) {
+function getEmailOptions() {
 
-    var errKeys = [];
+    var config = this._config;
+    var client = config.client;
+    var emailConfig = config.email;
 
-    keys.forEach(function(key) {
+    var emailOptions = {
+        to: emailConfig.admins,
+        subject: "Application Error"
+    };
 
-        if (!options[key]) {
-            errKeys.push(key);
-        }
-    });
-
-    if (errKeys.length) {
-        throw new Error("\"" + errKeys.join(", ") + "\" is required");
+    if (client === "nodemailer" && config.debug) {
+        _.extend(emailOptions, {
+            from: "\"" + emailConfig.noReplyName + "\" <" + emailConfig.noReply + ">"
+        });
     }
+    else if (client === "sendgrid") {
+        _.extend(emailOptions, {
+            from: emailConfig.noReply,
+            fromname: emailConfig.noReplyName
+        });
+    }
+    else if (client === "mandrill") {
+        _.extend(emailOptions, {
+            from_email: emailConfig.noReply,
+            from_name: emailConfig.noReplyName,
+            track_opens: true,
+            track_clicks: true
+        });
+    }
+    return emailOptions;
 }
 
-exports.ErrorHandler = ErrorHandler;
+/**
+ * @type {Tattle}
+ */
+module.exports = new Tattle();
