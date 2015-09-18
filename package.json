@@ -12,6 +12,10 @@
         "lodash": "3.10.1",
         "mandrill-api": "1.0.45",
         "sendgrid": "1.9.2",
+        "nodemailer": "0.6.3",
         "cc-express-utils": "git+https://github.com/clevercanary/cc-express-utils.git"
+    },
+    "peerDependencies": {
+        "mongoose": "4.x"
     }
 }
