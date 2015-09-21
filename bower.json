@@ -13,7 +13,8 @@
   "license": "MIT",
   "dependencies":{
     "angular": "1.2.16",
-    "angular-resource": "1.2.16"
+    "angular-resource": "1.2.16",
+    "stacktrace-js": "0.6.4"
   },
   "ignore": [
     ".*",
