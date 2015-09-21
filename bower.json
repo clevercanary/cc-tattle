@@ -1,0 +1,28 @@
+{
+  "name": "cc-tattle",
+  "main": "src/tattle.js",
+  "version": "0.0.1",
+  "homepage": "https://github.com/clevercanary/cc-tattle",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/clevercanary/cc-tattle.git"
+  },
+  "authors": [
+    "cdbajorin <chris@clevercanary.com>"
+  ],
+  "license": "MIT",
+  "dependencies":{
+    "angular": "1.2.16",
+    "angular-resource": "1.2.16"
+  },
+  "ignore": [
+    ".*",
+    "node_modules",
+    "package.json",
+    "index.js",
+    "lib",
+    "bower_components",
+    "test",
+    "tests"
+  ]
+}
