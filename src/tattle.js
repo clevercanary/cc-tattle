@@ -108,7 +108,7 @@
                 findAllErrorLogs: {
                     method: "GET",
                     url: "/api/errorlogs",
-                    isArray: true
+                    isArray: false
                 },
                 findErrorLogById: {
                     method: "GET",
