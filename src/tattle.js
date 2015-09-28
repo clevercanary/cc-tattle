@@ -53,6 +53,50 @@
                 }
             };
         })
+
+    /**
+     * Override default exception handling
+     */
+        .provider("$exceptionHandler", {
+            $get: function(ExceptionLoggingService) {
+                return ExceptionLoggingService;
+            }
+        })
+    /**
+     * Error Log Service
+     */
+        .factory("ErrorLogService", function(ErrorLogDAO) {
+
+            return {
+                /**
+                 * Find All
+                 *
+                 * @param qm {QueryModel}
+                 * @param next {Function|null|undefined}
+                 * @returns {*|promise|Function|q}
+                 */
+                findAllErrorLogs: function (qm, next) {
+
+                    next = next || angular.noop;
+
+                    return ErrorLogDAO.findAllErrorLogs(qm.asQuery(), next).$promise;
+                },
+
+                /**
+                 * Find by ID
+                 *
+                 * @param errorLogId {string}
+                 * @param next {Function}
+                 * @returns {*|promise|Function|q}
+                 */
+                findErrorLogById: function (errorLogId, next) {
+
+                    next = next || angular.noop;
+
+                    return ErrorLogDAO.findErrorLogById({id: errorLogId}, next).$promise;
+                }
+            };
+        })
     /**
      * Error Log DAO for 'Find' queries
      */
@@ -72,13 +116,5 @@
                     isArray: false
                 }
             });
-        })
-    /**
-     * Override default exception handling
-     */
-        .provider("$exceptionHandler", {
-            $get: function(ExceptionLoggingService) {
-                return ExceptionLoggingService;
-            }
         });
 })();
