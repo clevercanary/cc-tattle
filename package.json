@@ -1,11 +1,8 @@
 {
     "name": "cc-tattle",
     "version": "1.0.0",
-    "description": "",
+    "description": "Error emailer",
     "main": "index.js",
-    "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
-    },
     "author": "",
     "license": "ISC",
     "dependencies": {
@@ -13,7 +10,8 @@
         "mandrill-api": "1.0.45",
         "sendgrid": "1.9.2",
         "nodemailer": "0.6.3",
-        "cc-express-utils": "git+https://github.com/clevercanary/cc-express-utils.git"
+        "cc-express-utils": "git+https://github.com/clevercanary/cc-express-utils.git",
+        "cc-qm": "git+https://github.com/clevercanary/cc-qm.git"
     },
     "peerDependencies": {
         "mongoose": "4.x"
