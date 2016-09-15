@@ -1,6 +1,6 @@
 {
     "name": "cc-tattle",
-    "version": "1.0.0",
+    "version": "0.0.1",
     "description": "Error emailer",
     "main": "index.js",
     "author": "",
@@ -14,6 +14,6 @@
         "cc-qm": "git+https://github.com/clevercanary/cc-qm.git"
     },
     "peerDependencies": {
-        "mongoose": "4.x"
+        "mongoose": "^4.0.0"
     }
 }
